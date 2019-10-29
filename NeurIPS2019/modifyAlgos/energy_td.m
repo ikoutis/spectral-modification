@@ -40,7 +40,7 @@ end
 
 
 %% create re-weighted graph, based on eigenvector
-ev = graphEmbedding1(G, 1);
+ev = graphEmbedding(G, 1);
 
 u = G.Edges.EndNodes(:,1);
 v = G.Edges.EndNodes(:,2);
