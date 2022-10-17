@@ -5,3 +5,5 @@ Spectral graph clustering is based on the connection between eigenvectors of the
 The code is written in MATLAB and depends on the [CMG solver](https://github.com/ikoutis/cmg-solver/wiki/Combinatorial-Multigrid). 
 
 To run, install CMG and follow the steps suggested by demo.m
+
+This work has been supported by NSF grants CCF-1149048, CCF-1813374.
