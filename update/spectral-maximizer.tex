@@ -1,0 +1,873 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{conjecture}[theorem]{Conjecture}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\one}{\mathbf{1}}
+\newcommand{\cut}{\operatorname{cut}}
+\newcommand{\vol}{\operatorname{vol}}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\Sc}{\operatorname{Sc}}
+\newcommand{\E}{\mathcal{E}}
+\newcommand{\Null}{\operatorname{null}}
+\newcommand{\polylog}{\operatorname{polylog}}
+
+\title{Spectral Maximizers and Cut-Preserving Rewiring}
+\author{Working manuscript}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Spectral clustering is limited by the possible gap between conductance and
+the second generalized eigenvalue.  The 2019 spectral modification framework
+proposed to close this gap by replacing an input graph by a cut-similar graph
+whose low spectrum is much larger.  This note gives a theorem-driven version
+of that program.  For a connected weighted graph $G$ and a terminal-Steiner
+hierarchical cut approximator $T$, we define the spectral maximizer
+$H_T$ as the Schur complement of $T$ onto the original terminal set.
+We prove that $H_T$ is cut-similar to $G$, spectrally dominates every graph
+whose cuts are comparable to those of $G$ up to the unavoidable diameter
+factor of the hierarchy, and satisfies a generalized Cheeger inequality
+linear in the quality and terminal diameter of $T$.  We then separate the
+algorithmic story into three implementable layers: exact implicit application
+of $H_T$ through tree solves, sparse edge-addition versions via Schur
+complement sparsification, and practical tree-pack variants that generalize
+the existing energy-based modification heuristic.  The final section connects
+this construction to graph rewiring for graph neural networks, especially
+spectral-gap and effective-resistance rewiring.
+\end{abstract}
+
+\section{Introduction}
+
+Let $G=(V,E_G,w_G)$ be a connected weighted undirected graph.  Spectral
+partitioning solves a relaxation whose value is the second eigenvalue of a
+normalized or generalized Laplacian.  The target combinatorial objective is a
+cut ratio.  Cheeger's inequality guarantees that these two quantities are
+related, but only quadratically in the worst case.  This gap is not an artifact:
+families of graphs are known where the eigenvector-driven separator is
+asymptotically worse than the optimal cut \cite{guattery1998quality}.
+
+The spectral modification proposal of \cite{koutis2019spectral} is to leave
+the cut structure essentially intact while replacing the graph by a graph with
+larger low eigenvalues.  The conceptual construction is a hierarchical
+cut approximator $T$ with original vertices as terminals and additional
+Steiner vertices.  Eliminating the Steiner vertices by a Schur complement
+produces a dense terminal graph $H_T$.  Equivalently, one can keep the
+Steiner representation and apply $H_T$ implicitly by solving a Dirichlet
+problem on $T$.
+
+This manuscript makes the following points precise.
+
+\begin{itemize}
+\item A terminal-Steiner hierarchy $T$ induces a maximizer
+$H_T=\Sc(T,V)$.  The graph $H_T$ has both a Steiner-tree representation and
+an edge-addition representation through star-mesh elimination.
+\item If $T$ is an $\alpha$-cut approximator with terminal diameter $h$, then
+$H_T$ is $\alpha h$-cut similar to $G$.  Moreover, for every terminal graph
+$F$ whose cuts are bounded by $\rho$ times the cuts of $G$, the domination
+$F \preceq h\rho H_T$ holds.
+\item For every connected demand graph $B$, the pair $(H_T,B)$ satisfies
+\[
+  \lambda_2(H_T,B) \le \phi(H_T,B)
+  \le \alpha h \lambda_2(H_T,B).
+\]
+The proof explicitly carries the path-support factor $h$.
+\item Known hierarchical congestion approximator constructions of Racke,
+Peng, and later work give existential and algorithmic maximizers with
+polylogarithmic factors \cite{racke2002minimizing,racke2008optimal,
+racke2014computing,peng2016approximate,henzinger2025improved,
+li2025bottomup,agarwal2024parallel}.
+\item Sparse Schur-complement approximations convert the dense maximizer into
+a sampled edge set of near-linear size while preserving the guarantees up to
+$(1\pm\varepsilon)$ factors \cite{lee2015sparsified,li2018spectral}.
+\end{itemize}
+
+\section{Preliminaries}
+
+\subsection{Graphs, cuts, and domination}
+
+All graphs in this note are finite, undirected, and weighted with nonnegative
+edge weights.  For a graph $X=(U,E_X,w_X)$, its Laplacian is $L_X$ and its
+Dirichlet energy is
+\[
+  \E_X(x)=x^T L_X x
+  =\sum_{\{u,v\}\in E_X} w_X(u,v)(x_u-x_v)^2 .
+\]
+For $S\subseteq U$, let $\mathbf{1}_S$ be its indicator and
+\[
+  \cut_X(S)=\E_X(\mathbf{1}_S).
+\]
+For two graphs $X$ and $Y$ on the same vertex set we write
+$X\preceq Y$ if $L_X\preceq L_Y$, equivalently
+$\E_X(x)\le \E_Y(x)$ for all $x$.
+
+\begin{definition}[One-sided and two-sided cut comparability]
+Let $X$ and $Y$ be graphs on the same vertex set.  We say that $X$ is
+$\rho$-cut dominated by $Y$ if
+\[
+  \cut_X(S)\le \rho\,\cut_Y(S)\qquad\text{for all }S\subseteq V.
+\]
+We say that $X$ and $Y$ are $\rho$-cut similar if each graph is
+$\rho$-cut dominated by the other.
+\end{definition}
+
+The one-sided notion is the one needed for spectral maximality: if every cut
+of $F$ is no larger than $\rho$ times the corresponding cut of $G$, then the
+maximizer for $G$ spectrally dominates $F$ up to the hierarchy diameter.
+
+\subsection{Generalized conductance and generalized eigenvalues}
+
+Let $A$ and $B$ be connected graphs on the same vertex set $V$.  The graph
+$B$ is the demand graph; it determines which notion of volume or balance is
+being used.  Define
+\[
+  \phi(A,B)=\min_{\emptyset\ne S\subsetneq V}
+    \frac{\cut_A(S)}{\cut_B(S)} .
+\]
+Since $B$ is connected, $\cut_B(S)>0$ for every nontrivial cut.
+
+The second generalized eigenvalue of the pair $(A,B)$ is
+\[
+  \lambda_2(A,B)=
+  \min_{x\notin \operatorname{span}\{\one\}}
+  \frac{\E_A(x)}{\E_B(x)} .
+\]
+This quotient is invariant under adding a constant to $x$.  Equivalently,
+one may minimize over any fixed complement of $\operatorname{span}\{\one\}$.
+The first generalized eigenvalue is zero, with eigenvector $\one$.
+
+\begin{lemma}[Cut upper bounds eigenvalue]
+\label{lem:lambda-le-phi}
+For connected $A$ and $B$,
+\[
+  \lambda_2(A,B)\le \phi(A,B).
+\]
+\end{lemma}
+
+\begin{proof}
+For every nontrivial $S$, the vector $\mathbf{1}_S$ is not constant modulo
+$\operatorname{span}\{\one\}$ and
+\[
+  \frac{\E_A(\mathbf{1}_S)}{\E_B(\mathbf{1}_S)}
+  =\frac{\cut_A(S)}{\cut_B(S)} .
+\]
+Taking the minimum over $S$ gives the claim.
+\end{proof}
+
+\begin{definition}[Demand complete graph]
+Let $d\in\R_{>0}^V$ and $D=\sum_v d_v$.  The demand complete graph $K_d$ has
+edge weight $d_ud_v/D$ on each unordered pair $\{u,v\}$.  Then
+\[
+  L_{K_d}=\diag(d)-dd^T/D
+\]
+and
+\[
+  \cut_{K_d}(S)=\frac{d(S)(D-d(S))}{D}.
+\]
+\end{definition}
+
+If $d$ is the degree vector of $A$, then $\lambda_2(A,K_d)$ is the usual
+second eigenvalue of the normalized Laplacian of $A$.  The conductance
+$\phi(A,K_d)$ is the product-normalized cut objective.  It is within a factor
+of two of the common $\cut_A(S)/\min\{\vol_A(S),\vol_A(\bar S)\}$ convention.
+
+\section{Terminal-Steiner Hierarchies}
+
+\begin{definition}[Terminal-Steiner hierarchy]
+\label{def:hierarchy}
+Let $G=(V,E_G,w_G)$ be connected.  A terminal-Steiner hierarchy for $G$ is a
+weighted rooted tree
+\[
+  T=(V\dot\cup I,E_T,w_T,r)
+\]
+with terminal set $V$ and internal or Steiner set $I$, together with a set
+$S_a\subseteq V$ for every node $a\in V\dot\cup I$, satisfying:
+\begin{enumerate}
+\item $S_r=V$.
+\item The terminal leaves are identified with singletons: $S_v=\{v\}$ for
+each $v\in V$.
+\item If $a$ has children $b_1,\ldots,b_k$, then
+$S_{b_1},\ldots,S_{b_k}$ are disjoint and their union is $S_a$.
+\item If $a\ne r$ and $p(a)$ is the parent of $a$, then
+\[
+  w_T(a,p(a))=\cut_G(S_a).
+\]
+\end{enumerate}
+The terminal diameter $h(T)$ is the maximum number of tree edges on a path
+between two terminals.
+\end{definition}
+
+The canonical weights in item 4 imply an important path-lifting identity.  For
+each edge $e=\{u,v\}\in E_G$, let $P_e$ be the unweighted terminal path
+between $u$ and $v$ in $T$, and let $w_eP_e$ denote the tree graph on this
+path with every path edge given weight $w_G(e)$.
+
+\begin{lemma}[Path lifting identity]
+\label{lem:path-lifting}
+For every terminal-Steiner hierarchy $T$ of $G$,
+\[
+  T=\sum_{e\in E_G} w_G(e)P_e
+\]
+as weighted graphs on $V\dot\cup I$.
+\end{lemma}
+
+\begin{proof}
+Fix a tree edge $(a,p(a))$.  The path $P_{\{u,v\}}$ contains this tree edge
+if and only if exactly one of $u,v$ lies in $S_a$.  Therefore the total
+weight contributed to $(a,p(a))$ by the right-hand side is precisely
+$\cut_G(S_a)$, which equals $w_T(a,p(a))$ by Definition
+\ref{def:hierarchy}.
+\end{proof}
+
+\begin{definition}[Cut approximation quality]
+\label{def:cut-approx}
+For $S\subseteq V$, define the best binary extension cut
+\[
+  \mu_T(S)=\min_{Y\subseteq I}\cut_T(S\cup Y).
+\]
+The hierarchy $T$ is an $\alpha$-cut approximator for $G$ if for every
+$S\subseteq V$,
+\[
+  \cut_G(S)\le \mu_T(S)\le \alpha\,\cut_G(S).
+\]
+\end{definition}
+
+The lower bound follows automatically from the path-lifting identity for the
+canonical hierarchies above, but it is useful to include it as part of the
+interface.  The upper bound is the nontrivial approximation guarantee supplied
+by hierarchical cut/congestion approximator algorithms.
+
+\section{The Spectral Maximizer}
+
+Order the vertices of $T$ so that internal vertices $I$ come first and
+terminals $V$ come last.  Write
+\[
+  L_T=
+  \begin{pmatrix}
+    L_{II} & L_{IV}\\
+    L_{VI} & L_{VV}
+  \end{pmatrix}.
+\]
+Since $T$ is connected and every component of $T[I]$ touches a terminal
+through the boundary, the Dirichlet block $L_{II}$ is positive definite.
+
+\begin{definition}[Spectral maximizer]
+\label{def:maximizer}
+The spectral maximizer induced by $T$ is the terminal graph $H_T$ whose
+Laplacian is the Schur complement
+\[
+  L_{H_T}=L_{VV}-L_{VI}L_{II}^{-1}L_{IV}.
+\]
+\end{definition}
+
+\begin{lemma}[The maximizer is connected]
+\label{lem:max-connected}
+The matrix $L_{H_T}$ is the Laplacian of a connected weighted graph on $V$.
+Equivalently, $\Null(L_{H_T})=\operatorname{span}\{\one\}$.
+\end{lemma}
+
+\begin{proof}
+Schur complements of Laplacians onto a nonempty terminal set are Laplacians
+with nonpositive off-diagonal entries and zero row sums.  It remains to check
+the nullspace.  If $\E_{H_T}(x)=0$, Lemma \ref{lem:harmonic} gives an
+extension $z=(y,x)$ with $\E_T(z)=0$.  Since $T$ is connected, every edge of
+$T$ has equal endpoint values under $z$, so $z$ is constant and therefore
+$x$ is constant.  The reverse inclusion is immediate from zero row sums.
+\end{proof}
+
+\begin{lemma}[Harmonic extension]
+\label{lem:harmonic}
+For every terminal vector $x\in\R^V$,
+\[
+  \E_{H_T}(x)
+  =
+  \min_{y\in\R^I}
+  \E_T(y,x).
+\]
+The minimizer is the unique internal vector
+$y_x=-L_{II}^{-1}L_{IV}x$.
+\end{lemma}
+
+\begin{proof}
+The energy of $T$ at fixed terminal values $x$ is the quadratic
+\[
+  y^T L_{II}y+2y^TL_{IV}x+x^TL_{VV}x .
+\]
+Its unique minimizer satisfies $L_{II}y+L_{IV}x=0$.  Substituting the
+minimizer gives the Schur complement quadratic form.
+\end{proof}
+
+\begin{proposition}[Two representations]
+\label{prop:representations}
+The maximizer $H_T$ may be used in either of the following equivalent ways.
+\begin{enumerate}
+\item Steiner representation: store $T$ and apply $L_{H_T}$ by the formula
+\[
+  L_{H_T}x=L_{VV}x-L_{VI}L_{II}^{-1}L_{IV}x .
+\]
+\item Edge-addition representation: eliminate vertices of $I$ one at a time.
+Eliminating a Steiner vertex $q$ with incident conductances
+$c_1,\ldots,c_k$ to neighbors $a_1,\ldots,a_k$ and
+$c_q=\sum_i c_i$ deletes $q$ and adds a clique on its neighbors with edge
+conductance $c_ic_j/c_q$ between $a_i$ and $a_j$.  After all Steiner
+vertices are eliminated, the resulting terminal Laplacian is $L_{H_T}$.
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+The first item is the block formula for the Schur complement.  The second is
+the standard star-mesh formula for eliminating one Laplacian variable.  Schur
+complements are associative, so eliminating the vertices of $I$ in any order
+gives the same terminal Schur complement.
+\end{proof}
+
+\section{Spectral Maximality}
+
+The following elementary path-support inequality is the source of the
+terminal-diameter loss.
+
+\begin{lemma}[Path support]
+\label{lem:path-support}
+Let $P$ be a path of length $\ell$ between endpoints $s,t$, with every path
+edge having conductance $w$.  Let $E_{st}$ be the single edge of conductance
+$w$ between $s$ and $t$.  Then
+\[
+  E_{st}\preceq \ell P .
+\]
+\end{lemma}
+
+\begin{proof}
+For any vector $z$ on the path,
+\[
+  w(z_s-z_t)^2
+  =
+  w\left(\sum_{i=1}^{\ell}(z_{i-1}-z_i)\right)^2
+  \le
+  \ell w\sum_{i=1}^{\ell}(z_{i-1}-z_i)^2
+\]
+by Cauchy-Schwarz.
+\end{proof}
+
+\begin{lemma}[The hierarchy supports the input graph]
+\label{lem:G-supported}
+If $T$ is a terminal-Steiner hierarchy for $G$ and $h=h(T)$, then
+\[
+  G\preceq hT
+\]
+where $G$ is viewed as a graph on $V\dot\cup I$ with isolated Steiner
+vertices.
+\end{lemma}
+
+\begin{proof}
+By Lemma \ref{lem:path-lifting}, $T=\sum_{e\in E_G} w_eP_e$.  For each
+$e=\{u,v\}$, the corresponding terminal path has length at most $h$, so
+$w_eE_{uv}\preceq h\,w_eP_e$ by Lemma \ref{lem:path-support}.  Summing over
+$e$ gives the claim.
+\end{proof}
+
+\begin{theorem}[Conditional spectral maximizer theorem]
+\label{thm:conditional-max}
+Let $T$ be an $\alpha$-cut approximating terminal-Steiner hierarchy for a
+connected weighted graph $G$, let $h=h(T)$, and let $H_T=\Sc(T,V)$.
+Then:
+\begin{enumerate}
+\item $H_T$ and $G$ are $\alpha h$-cut similar in the explicit sense
+\[
+  \frac{1}{\alpha}\cut_{H_T}(S)\le \cut_G(S)
+  \le h\,\cut_{H_T}(S)
+  \qquad\text{for all }S\subseteq V.
+\]
+\item If $F$ is any graph on $V$ with
+$\cut_F(S)\le \rho\,\cut_G(S)$ for all $S\subseteq V$, then
+\[
+  F\preceq h\rho\,H_T .
+\]
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+For the upper comparison $\cut_{H_T}(S)\le \alpha\cut_G(S)$, use Lemma
+\ref{lem:harmonic} with $x=\mathbf{1}_S$:
+\[
+  \cut_{H_T}(S)
+  =
+  \min_{y\in\R^I}\E_T(y,\mathbf{1}_S)
+  \le
+  \min_{Y\subseteq I}\E_T(\mathbf{1}_Y,\mathbf{1}_S)
+  =
+  \mu_T(S)
+  \le
+  \alpha\cut_G(S).
+\]
+
+For the lower comparison $\cut_G(S)\le h\cut_{H_T}(S)$, Lemma
+\ref{lem:G-supported} gives, for every internal extension $y$,
+\[
+  \cut_G(S)=\E_G(\mathbf{1}_S)
+  \le h\,\E_T(y,\mathbf{1}_S).
+\]
+Taking the minimum over $y$ and applying Lemma \ref{lem:harmonic} gives the
+claim.
+
+Now let $F$ be $\rho$-cut dominated by $G$.  Build the path lift
+\[
+  T_F=\sum_{\{u,v\}\in E_F} w_F(u,v)P^T_{uv},
+\]
+where $P^T_{uv}$ is the terminal path between $u$ and $v$ in $T$.  For the
+tree edge $(a,p(a))$, the weight in $T_F$ is $\cut_F(S_a)$, hence it is at
+most $\rho\cut_G(S_a)=\rho w_T(a,p(a))$.  Therefore $T_F\preceq \rho T$.
+By path support, $F\preceq hT_F\preceq h\rho T$ on $V\dot\cup I$.  Thus for
+all terminal vectors $x$ and all internal extensions $y$,
+\[
+  \E_F(x)\le h\rho\,\E_T(y,x).
+\]
+Minimize over $y$ and use Lemma \ref{lem:harmonic} to obtain
+$F\preceq h\rho H_T$.
+\end{proof}
+
+\begin{remark}
+The word ``maximizer'' is not meant to assert uniqueness.  It says that,
+after fixing a cut hierarchy $T$, the Schur complement $H_T$ spectrally
+dominates every graph with comparable cuts, up to the terminal diameter and
+cut-comparison factors.  Different hierarchies can produce different
+maximizers.
+\end{remark}
+
+\section{Existence from Hierarchical Cut Approximators}
+
+The previous section is conditional on the hierarchy.  Existing work on
+oblivious routing and congestion approximators supplies such hierarchies.
+The exact constants and logarithmic powers depend on the chosen black box.
+
+\begin{theorem}[HCA black box]
+\label{thm:hca-blackbox}
+For every connected weighted graph $G$ on $n$ vertices, there is a
+terminal-Steiner hierarchy $T$ with terminal diameter $h=O(\log n)$ and
+cut-approximation quality $\alpha=\Gamma(n)$, where $\Gamma(n)$ is
+polylogarithmic.  Moreover:
+\begin{enumerate}
+\item Peng's nearly-linear max-flow framework gives a near-linear-time
+construction with polylogarithmic $\Gamma(n)$
+\cite{peng2016approximate}.
+\item Recent hierarchical congestion approximators improve the best
+near-linear quality to $O(\log^2 n\log\log n)$ with high probability, and
+also admit parallel implementations with near-linear work
+\cite{henzinger2025improved,agarwal2024parallel}.
+\item Bottom-up constructions give an alternative nearly-linear route to
+polylogarithmic congestion approximators without the same recursive
+alternation between max-flow and approximator construction
+\cite{li2025bottomup}.
+\end{enumerate}
+\end{theorem}
+
+This theorem is used as a black box here.  Its objects are often presented as
+hierarchical congestion approximators or oblivious routing trees rather than
+as the terminal-Steiner hierarchy in Definition \ref{def:hierarchy}.  The
+translation is standard: the laminar family of cuts becomes the rooted tree,
+and each child-parent edge is assigned the capacity of the corresponding cut
+in $G$.
+
+\begin{corollary}[Existence of spectral maximizers]
+\label{cor:existence}
+Every connected weighted graph $G$ has a spectral maximizer $H$ that is
+$O(\Gamma(n)\log n)$-cut similar to $G$ and that spectrally dominates every
+graph $F$ with $F$ $\rho$-cut dominated by $G$ up to an
+$O(\rho\log n)$ factor.  With the current near-linear HCA bound quoted above,
+the cut-similarity factor is
+$O(\log^3 n\log\log n)$ with high probability.
+\end{corollary}
+
+\begin{proof}
+Apply Theorem \ref{thm:hca-blackbox} and then Theorem
+\ref{thm:conditional-max}.
+\end{proof}
+
+\section{Cheeger Inequalities for the Maximizer}
+
+\begin{theorem}[Generalized Cheeger inequality for $H_T$]
+\label{thm:cheeger}
+Let $T$ be an $\alpha$-cut approximating terminal-Steiner hierarchy for $G$,
+let $h=h(T)$, and let $H_T=\Sc(T,V)$.  For every connected demand graph
+$B$ on $V$,
+\[
+  \lambda_2(H_T,B)\le \phi(H_T,B)
+  \le \alpha h\,\lambda_2(H_T,B).
+\]
+\end{theorem}
+
+\begin{proof}
+The lower inequality $\lambda_2(H_T,B)\le \phi(H_T,B)$ is Lemma
+\ref{lem:lambda-le-phi}.  We prove the other direction.
+
+Let $x$ be a minimizer for $\lambda_2(H_T,B)$ in the quotient by constants,
+and let $z=(y_x,x)$ be its harmonic extension to $T$ as in Lemma
+\ref{lem:harmonic}.  Thus
+\[
+  \lambda_2(H_T,B)=\frac{\E_T(z)}{\E_B(x)} .
+\]
+For each edge $e=\{u,v\}\in E_B$, let $P^T_{uv}$ be the terminal path in
+$T$.  By Lemma \ref{lem:path-support}, and because $z$ has terminal values
+$x$,
+\[
+  w_B(e)(x_u-x_v)^2
+  \le h\, w_B(e)\E_{P^T_{uv}}(z).
+\]
+Summing over $e\in E_B$ gives
+\[
+  \E_B(x)\le h\,\E_{T_B}(z),
+  \qquad
+  T_B=\sum_{e\in E_B} w_B(e)P^T_e .
+\]
+Therefore
+\[
+  \lambda_2(H_T,B)
+  \ge
+  \frac{1}{h}\frac{\E_T(z)}{\E_{T_B}(z)}
+  \ge
+  \frac{1}{h}
+  \min_{a\ne r}
+  \frac{w_T(a,p(a))}{w_{T_B}(a,p(a))}.
+\]
+The last inequality is the elementary fact that a quotient of weighted sums
+is at least the minimum quotient of corresponding coefficients; terms with
+zero denominator are ignored.
+
+For a tree edge $(a,p(a))$, the denominator is
+$w_{T_B}(a,p(a))=\cut_B(S_a)$, while the numerator is
+$w_T(a,p(a))=\cut_G(S_a)$.  From Theorem
+\ref{thm:conditional-max}, $\cut_{H_T}(S_a)\le \alpha\cut_G(S_a)$, hence
+\[
+  \frac{w_T(a,p(a))}{w_{T_B}(a,p(a))}
+  =
+  \frac{\cut_G(S_a)}{\cut_B(S_a)}
+  \ge
+  \frac{1}{\alpha}
+  \frac{\cut_{H_T}(S_a)}{\cut_B(S_a)} .
+\]
+Taking the minimum over hierarchy clusters can only increase the minimum over
+all nontrivial subsets of $V$.  Thus
+\[
+  \lambda_2(H_T,B)
+  \ge
+  \frac{1}{\alpha h}\phi(H_T,B),
+\]
+which is equivalent to the desired upper Cheeger bound.
+\end{proof}
+
+\begin{corollary}[Normalized cut specialization]
+\label{cor:normalized}
+Let $d\in\R_{>0}^V$ and let $K_d$ be the demand complete graph.  Then
+\[
+  \lambda_2(H_T,K_d)\le \phi(H_T,K_d)
+  \le \alpha h\,\lambda_2(H_T,K_d).
+\]
+If $d$ is the degree vector of $H_T$, the eigenvalue is the standard second
+normalized Laplacian eigenvalue of $H_T$.  If $d$ is the degree vector of
+$G$, the same inequality holds for the original-volume normalization used by
+the modification algorithm.
+\end{corollary}
+
+\begin{corollary}[Actual Cheeger inequality from spectral closeness]
+\label{cor:actual}
+Let $M$ be a terminal graph such that
+\[
+  c_- H_T\preceq M\preceq c_+ H_T
+\]
+for constants $0<c_-\le c_+$.  Then for every connected demand graph $B$,
+\[
+  \lambda_2(M,B)\le \phi(M,B)
+  \le \frac{c_+}{c_-}\,\alpha h\,\lambda_2(M,B).
+\]
+\end{corollary}
+
+\begin{proof}
+The lower inequality is again Lemma \ref{lem:lambda-le-phi}.  For the upper
+bound,
+\[
+  \phi(M,B)\le c_+\phi(H_T,B)
+  \le c_+\alpha h\,\lambda_2(H_T,B)
+  \le \frac{c_+}{c_-}\alpha h\,\lambda_2(M,B).
+\]
+\end{proof}
+
+\section{Algorithms}
+
+This section gives the algorithmic interface promised by the theory.  It
+separates exact implicit maximizers from sparse sampled edge sets and from
+practical tree-pack heuristics.
+
+\subsection{Exact implicit maximizer}
+
+\paragraph{Input.}
+A connected weighted graph $G$ and a hierarchical cut approximator routine
+returning $T=(V\dot\cup I,E_T,w_T,r)$.
+
+\paragraph{Data structure.}
+Store the four Laplacian blocks $L_{II},L_{IV},L_{VI},L_{VV}$ and a solver
+for the tree Dirichlet block $L_{II}$.  Because $T$ is a tree, exact linear
+time elimination is possible after rooting; in a numerical implementation,
+a sparse Cholesky or specialized tree solve is enough.
+
+\paragraph{Matrix-vector product.}
+For $x\in\R^V$:
+\begin{enumerate}
+\item Compute $b=L_{IV}x$.
+\item Solve $L_{II}y=b$.
+\item Return $L_{VV}x-L_{VI}y$.
+\end{enumerate}
+This is exactly $L_{H_T}x$.  It supports generalized eigensolvers for
+$L_{H_T}x=\lambda L_Bx$ without materializing dense terminal edges.
+
+\paragraph{Public interface.}
+\[
+\begin{array}{ll}
+\texttt{build\_maximizer(G)} & \text{return hierarchy, blocks, and solver},\\
+\texttt{apply\_maximizer(state,x)} & \text{return }L_{H_T}x,\\
+\texttt{eigs\_maximizer(state,B,k)} & \text{return the first }k\text{ generalized eigenvectors.}
+\end{array}
+\]
+
+\subsection{Sparse edge sampler}
+
+The dense edge-addition representation can be approximated using Schur
+complement sparsification.  The needed theorem is now standard in the
+Laplacian-solver literature \cite{lee2015sparsified,li2018spectral}.
+
+\begin{theorem}[Sparse Schur-complement sampler, black-box form]
+\label{thm:schur-sampler}
+Given a Laplacian $L_T$ and terminal set $V$, there is a randomized algorithm
+that returns a terminal graph $\widehat H$ with
+\[
+  (1-\varepsilon)H_T\preceq \widehat H\preceq(1+\varepsilon)H_T
+\]
+with high probability and with
+$O(|V|\polylog |V|/\varepsilon^2)$ terminal edges, up to the precise
+polylogarithmic factors of the chosen Schur-sparsifier routine.
+\end{theorem}
+
+\begin{corollary}[Sparse sampled maximizers inherit Cheeger]
+\label{cor:sparse-cheeger}
+If $\widehat H$ satisfies Theorem \ref{thm:schur-sampler} with
+$0<\varepsilon<1$, then for every connected demand graph $B$,
+\[
+  \lambda_2(\widehat H,B)\le\phi(\widehat H,B)
+  \le
+  \frac{1+\varepsilon}{1-\varepsilon}\,
+  \alpha h\,\lambda_2(\widehat H,B).
+\]
+Moreover $\widehat H$ is cut-similar to $G$ with the factors in Theorem
+\ref{thm:conditional-max} multiplied by at most $1+\varepsilon$ or
+$(1-\varepsilon)^{-1}$.
+\end{corollary}
+
+\begin{proof}
+The proof is the same as Corollary \ref{cor:actual}, with
+$c_-=1-\varepsilon$ and $c_+=1+\varepsilon$.  Spectral approximation implies
+cut approximation by testing indicator vectors.
+\end{proof}
+
+\paragraph{Sampling by star-mesh elimination.}
+An implementable route is to eliminate Steiner vertices one at a time.  When
+eliminating a vertex of degree $k$, the exact star-mesh clique has
+$\binom{k}{2}$ edges with weights $c_ic_j/c_q$.  Instead of inserting the
+whole clique, sample edges from the clique with probabilities proportional to
+leverage-score or effective-resistance surrogates, reweighting sampled edges
+unbiasedly.  The analysis should follow the martingale matrix concentration
+template used in Schur-complement sparsifiers.  For a first prototype, one
+can use oversampling probabilities proportional to $c_ic_j/c_q$ and then
+measure the actual spectral error empirically.
+
+\paragraph{Public interface.}
+\[
+\begin{array}{ll}
+\texttt{sample\_maximizer\_edges(G,budget,eps,seed)}
+ & \text{return sampled weighted edges plus certificates},\\
+\texttt{certificate.cut}
+ & \text{sampled cut tests against }G\text{ and }H_T,\\
+\texttt{certificate.spectral}
+ & \text{Ritz/eigenvalue tests for }(1\pm\varepsilon)\text{ approximation}.
+\end{array}
+\]
+
+\subsection{Adding sampled edges back to the original graph}
+
+There are two natural uses of the sampled maximizer.
+
+\paragraph{Replacement mode.}
+Run spectral clustering on $\widehat H$ or on its implicit Steiner version.
+The cuts returned by sweep or rounding are evaluated back in $G$.  Theorem
+\ref{thm:conditional-max} and Corollary \ref{cor:sparse-cheeger} certify that
+cuts in $\widehat H$ correspond to cuts in $G$ within polylogarithmic factors.
+
+\paragraph{Augmentation mode.}
+Use
+\[
+  M_\eta=G+\eta\widehat H
+\]
+for some $\eta>0$.  Then $M_\eta$ preserves the original graph channel while
+adding long-range maximizer edges.  Since $G\preceq hH_T$ and
+$\widehat H\preceq(1+\varepsilon)H_T$,
+\[
+  M_\eta\preceq (h+\eta(1+\varepsilon))H_T.
+\]
+Also $M_\eta\succeq \eta(1-\varepsilon)H_T$.  Therefore Corollary
+\ref{cor:actual} gives the conservative certificate
+\[
+  \phi(M_\eta,B)
+  \le
+  \frac{h+\eta(1+\varepsilon)}{\eta(1-\varepsilon)}
+  \alpha h\,\lambda_2(M_\eta,B).
+\]
+This bound is not meant to be optimized; it shows that augmentation restores a
+linear Cheeger relationship whenever the maximizer component is not too small.
+
+\subsection{Tree-pack maximizers}
+
+The MATLAB code accompanying \cite{koutis2019spectral} computes several
+high-energy spanning trees, replaces each tree by a tree maximizer, and sums
+the resulting Steiner components.  The following proposition captures what is
+already provable for this class of algorithms.
+
+\begin{proposition}[Certified tree-pack modification]
+\label{prop:tree-pack}
+Let $T_1,\ldots,T_k$ be weighted subtrees of $G$, each on terminal set $V$.
+Let $R_j$ be an $\alpha_j$-cut approximating hierarchy for $T_j$ with
+terminal diameter $h_j$, and let $H_j=\Sc(R_j,V)$.  For weights
+$\eta_j\ge0$, define
+\[
+  M=G+\sum_{j=1}^k \eta_j H_j .
+\]
+Then:
+\begin{enumerate}
+\item $M\succeq G$, so $\lambda_i(M,B)\ge \lambda_i(G,B)$ for every connected
+demand graph $B$ and every generalized eigenvalue index $i$.
+\item For every cut $S$,
+\[
+  \cut_M(S)
+  \le
+  \left(1+\sum_{j=1}^k\eta_j\alpha_j\right)\cut_G(S).
+\]
+\end{enumerate}
+\end{proposition}
+
+\begin{proof}
+The first item follows from positive semidefinite addition and the
+Courant-Fischer min-max characterization.  For the second, Theorem
+\ref{thm:conditional-max} applied to each subtree gives
+$\cut_{H_j}(S)\le \alpha_j\cut_{T_j}(S)$.  Since $T_j$ is a weighted subgraph
+of $G$, $\cut_{T_j}(S)\le\cut_G(S)$.  Summing proves the bound.
+\end{proof}
+
+The proposition is deliberately modest: it certifies monotone spectral
+increase and bounded cut distortion, but it does not say that a small tree
+pack approximates the full maximizer.  That is the key algorithmic conjecture.
+
+\begin{conjecture}[Energy-guided tree-pack convergence]
+\label{conj:tree-pack}
+There is a polynomial or polylogarithmic number of iterations of an
+energy-guided tree-pack algorithm such that the sum of tree maximizers
+$\sum_j\eta_jH_j$ is a constant or polylogarithmic spectral approximation to
+the full maximizer $H_T$ on the low-dimensional subspace relevant to the first
+$k$ generalized eigenvectors.
+\end{conjecture}
+
+A provable version may need to sample trees from a low-stretch or oblivious
+routing distribution rather than selecting only maximum-energy spanning trees.
+The existing energy method remains the right practical baseline: it directly
+targets the Rayleigh quotient directions in which the current graph is far
+from its maximizer.
+
+\section{Connection to Graph Rewiring in GNNs}
+
+Graph neural network rewiring tries to improve message passing by changing
+the graph topology.  FoSR adds edges to increase spectral expansion and reduce
+oversquashing, while using architectural separation to control oversmoothing
+\cite{karhadkar2023fosr}.  Yusu Wang and coauthors analyze oversquashing
+through effective resistance and add edges chosen to reduce total effective
+resistance \cite{black2023oversquashing}.  A recent survey frames these
+methods as part of a broad tradeoff between information flow and
+oversmoothing \cite{attali2026survey}.
+
+Spectral maximizers provide a complementary principle.  Instead of asking only
+which edges most increase $\lambda_2$ or most reduce resistance, we ask for a
+rewired graph whose cuts remain comparable to the original graph while its
+low spectrum is raised as much as the cut structure permits.  This gives a
+possible certificate missing from many rewiring heuristics: the added edges
+improve long-range communication while preserving every cut up to a known
+factor.
+
+For GNNs, the clean experimental form is augmentation mode:
+\[
+  A_{\mathrm{message}} = A_G + \eta A_{\widehat H},
+\]
+with separate edge types or channels for original and maximizer edges.  The
+separate-channel architecture is important: it lets the model distinguish
+original geometry from cut-preserving shortcuts.  The mathematical certificate
+is the cut/spectral approximation of $\widehat H$; the empirical question is
+whether this reduces oversquashing without inducing oversmoothing.
+
+\begin{conjecture}[Cut-certified rewiring for message passing]
+For graph families where oversquashing is caused by high-diameter bottlenecks
+rather than label-noise artifacts, sparse maximizer edges reduce effective
+resistance and increase task-relevant spectral gaps while preserving the
+class-relevant cut structure better than generic spectral-gap rewiring.
+\end{conjecture}
+
+\section{Numerical Checks and Benchmarks}
+
+The first implementation should test the following cases.
+
+\begin{enumerate}
+\item Path graph.  The binary-tree hierarchy should raise $\lambda_2$ from
+$\Theta(n^{-2})$ to near $\Theta((n\log n)^{-1})$, matching the example in
+\cite{koutis2019spectral} up to logarithmic factors.
+\item Expander graph.  The maximizer should not substantially alter the
+useful low spectrum; this checks that the method does not damage graphs that
+already have good Cheeger behavior.
+\item Double-binary-tree and product bad cases.  These should reproduce the
+known spectral separator failure and show improvement after modification
+\cite{guattery1998quality,koutis2019spectral}.
+\item Stochastic block and degree-corrected block models.  Compare replacement
+and augmentation modes against regularized spectral clustering
+\cite{zhang2018regularized}.
+\item GNN rewiring tasks.  Compare against FoSR and effective-resistance
+rewiring on graph classification benchmarks, reporting accuracy, resistance
+statistics, spectral gap, and cut-distortion certificates.
+\end{enumerate}
+
+\section{Open Proof Tasks}
+
+The core conditional theory above is complete once the HCA black box is
+accepted.  The remaining proof work is algorithmic.
+
+\begin{enumerate}
+\item Instantiate Theorem \ref{thm:hca-blackbox} with a concrete HCA theorem
+and write the exact quality/runtime statement, including probability of
+success and hierarchy size.
+\item Choose a Schur-complement sparsifier and replace Theorem
+\ref{thm:schur-sampler} by its exact edge count and runtime.
+\item Prove or refute Conjecture \ref{conj:tree-pack}.  A plausible route is
+to sample trees from an oblivious-routing distribution and show that the
+expected tree-pack maximizer spectrally approximates $H_T$ on a target
+subspace.
+\item Develop a posteriori certificates for practical edge samplers: sampled
+cut tests, low-dimensional spectral approximation tests, and monotonicity of
+generalized eigenvalues.
+\end{enumerate}
+
+\bibliographystyle{alpha}
+\bibliography{references}
+
+\end{document}
